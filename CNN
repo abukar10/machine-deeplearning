@@ -1,0 +1,262 @@
+Deep Learning Project: Pet Classifier using CNN
+Prepration
+
+Extract the ipynb file and the data in the same folder
+Data Set
+
+A production grade program as 10,000 training images
+This is a small program with 20 images of cats and 20 images of dogs.
+The evaluation set has 10 images of cats and 10 images of dogs
+Runs
+
+run 100-300 training step
+A production grade code would have about 20k-50k training steps
+Import modules
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+import os
+import cv2
+import glob
+import matplotlib.pyplot as plt
+import numpy as np
+import tensorflow as tf
+import random
+import sys
+​
+#from tensorflow.keras.models import Sequential
+#from tensorflow.keras.models import Dense, Dropout, Activation, Flatten, Conv2D, MaxPooling2D
+​
+​
+# To support both python 2 and python 3
+from __future__ import division, print_function, unicode_literals
+​
+# to make this notebook's output stable across runs
+def reset_graph(seed=42):
+    tf.reset_default_graph()
+    tf.set_random_seed(seed)
+    np.random.seed(seed)
+Set hyper parameters
+Run the program with three num_steps : 100,200,300
+reset_graph()
+​
+img_size = 32
+num_channels = 3
+img_size_flat = img_size * img_size * num_channels
+img_shape = (img_size, img_size)
+trainpath = "C:\\Users\\abukar\\DeepLearning_ProJect\\test"
+testpath  = "C:\\Users\\abukar\\DeepLearning_ProJect\\train"
+labels = {'cats': 0, 'dogs': 1}
+fc_size=32 #size of the output of final FC layer
+num_steps=1000 #Try 100, 200, 300. number of steps that training data should be looped. Usually 20K
+tf.logging.set_verbosity(tf.logging.INFO)
+Read the image dataset
+def read_images_classes(basepath,imgSize=img_size):
+    image_stack = []
+    label_stack = []
+​
+    for counter, l in enumerate(labels):
+        path = os.path.join(basepath, l,'*g')
+        for img in glob.glob(path):
+            one_hot_vector =np.zeros(len(labels),dtype=np.int16)
+            one_hot_vector[counter]=1
+            image = cv2.imread(img)
+            im_resize = cv2.resize(image,img_shape, interpolation=cv2.INTER_CUBIC)
+            image_stack.append(im_resize)
+            label_stack.append(labels[l])            
+    return np.array(image_stack), np.array(label_stack)
+​
+X_train, y_train=read_images_classes(trainpath)
+X_test, y_test=read_images_classes(testpath)
+​
+#test a sample image
+print('length of train image set',len(X_train))
+print('X_data shape:', X_train.shape)
+print('y_data shape:', y_train.shape)
+​
+fig1 = plt.figure() 
+ax1 = fig1.add_subplot(2,2,1) 
+img = cv2.resize(X_train[1],(64,64), interpolation=cv2.INTER_CUBIC)
+ax1.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+plt.title(y_train[0])
+plt.show()
+length of train image set 20
+X_data shape: (20, 32, 32, 3)
+y_data shape: (20,)
+
+Assignment: Define the tensorflow model
+The model should have the following layers
+
+input later
+conv layer 1 with 32 filters of kernel size[5,5],
+pooling layer 1 with pool size[2,2] and stride 2
+conv layer 2 with 64 filters of kernel size[5,5],
+pooling layer 2 with pool size[2,2] and stride 2
+dense layer whose output size is fixed in the hyper parameter: fc_size=32
+drop out layer with droput probability 0.4
+predict the class by doing a softmax on the output of the dropout layers
+Training
+
+For training fefine the loss function and minimize it
+For evaluation calculate the accuracy
+Reading Material
+
+For ideas look at tensorflow layers tutorial
+The cnn_model_fn has to be defined here by the student
+def cnn_model_fn(features, labels, mode):
+​
+#INPUT LAYER
+    
+    input_layer = tf.reshape(features["x"], [-1, img_size, img_size, num_channels])
+​
+  
+#CONVLAYER1
+    
+    conv1 = tf.layers.conv2d(inputs=input_layer,filters=32,kernel_size=[5, 5],
+        padding="same", activation=tf.nn.relu)
+  
+#POOLINGLAYER1
+    
+    pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[2, 2], strides=2)
+  
+#CONVLAYER2
+    
+    conv2 = tf.layers.conv2d(inputs=pool1,filters=64,kernel_size=[5, 5],
+      padding="same",activation=tf.nn.relu)
+  
+#POOLINGLAYER2
+  
+    pool2 = tf.layers.max_pooling2d(inputs=conv2, pool_size=[2, 2], strides=2)
+  
+# Dense Layer
+   
+    layer_shape = pool2.get_shape()
+    total_number_features = layer_shape[1:4].num_elements()
+    pool2_flat = tf.reshape(pool2,[-1, total_number_features])
+    
+   
+    dense = tf.layers.dense(inputs=pool2_flat, units=128, activation=tf.nn.relu)
+​
+    dropout = tf.layers.dropout(inputs=dense, rate=0.4, training=mode == tf.estimator.ModeKeys.TRAIN)
+    
+#LOGITSLAYER
+    
+    logits = tf.layers.dense(inputs=dropout,units=2)
+    
+    predictions = {
+        
+        "class": tf.argmax(input=logits, axis=1),
+        "probabilities": tf.nn.softmax(logits,name="softmax_tensor")
+     
+    }
+​
+    if mode == tf.estimator.ModeKeys.PREDICT:
+        return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
+    
+#DEFINE LOSS FUNCTION
+​
+    one_hot_labels = tf.one_hot(indices=tf.cast(labels,tf.int32),depth=2)
+    loss = tf.losses.softmax_cross_entropy(onehot_labels=one_hot_labels,logits=logits)
+    
+#DEFINE OPTIMIZATION
+​
+    if mode ==tf.estimator.ModeKeys.TRAIN:
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate = 0.01)
+        train_op = optimizer.minimize(loss=loss,global_step=tf.train.get_global_step())
+        
+    return tf.estimator.EstimatorSpec(mode=mode,loss=loss,train_op=train_op)
+​
+#MODEL ACCURACY
+    
+    eval_metric_ops = {
+        "accuracy": tf.metrics.accuracy(labels=labels,predictions=predictions["classes"])
+        
+    }
+    
+    return tf.estimator.EstimatorSpec(mode=mode,loss=loss,eval_metric_ops=eval_metric_ops)
+​
+​
+​
+​
+Run the tensorflow model
+This section will use the model defined by the student and run the training and evaluation step
+
+#X_train = np.array((X_train/255.0),dtype=np.float16)
+#X_test = np.array((X_test/255.0), dtype=np.float16)
+X_train = np.array((X_train/255.0),dtype=np.float32)
+X_test = np.array((X_test/255.0), dtype=np.float32)
+​
+pets_classifier = tf.estimator.Estimator(model_fn=cnn_model_fn, model_dir="/tmp/pets_convnet_model")
+#pets_classifier = tf.estimator.Estimator(model_fn=cnn_model_fn)
+tensors_to_log = {"probabilities": "softmax_tensor"}
+logging_hook = tf.train.LoggingTensorHook(tensors=tensors_to_log, every_n_iter=50)
+train_input_fn = tf.estimator.inputs.numpy_input_fn(x={"x": X_train}, y=y_train, batch_size=10,
+                                                      num_epochs=None, shuffle=True)
+pets_classifier.train(input_fn=train_input_fn, steps=num_steps, hooks=[logging_hook])
+eval_input_fn = tf.estimator.inputs.numpy_input_fn(x={"x": X_test}, y=y_test, num_epochs=1,shuffle=False)
+eval_results = pets_classifier.evaluate(input_fn=eval_input_fn)
+print(eval_results)
+
+ 
+"here is just snippet output from jupyter note after the code is run.  
+the code is still evolving and should be improved.  
+for example, the result here is based on small training data sample
+and this may couse certain behaviour from the model output.  "
+
+               by Abukar Ali
+
+
+
+INFO:tensorflow:Using default config.
+INFO:tensorflow:Using config: {'_model_dir': '/tmp/pets_convnet_model', '_tf_random_seed': None, '_save_summary_steps': 100, '_save_checkpoints_steps': None, '_save_checkpoints_secs': 600, '_session_config': None, '_keep_checkpoint_max': 5, '_keep_checkpoint_every_n_hours': 10000, '_log_step_count_steps': 100, '_train_distribute': None, '_service': None, '_cluster_spec': <tensorflow.python.training.server_lib.ClusterSpec object at 0x00000228A96C4C88>, '_task_type': 'worker', '_task_id': 0, '_global_id_in_cluster': 0, '_master': '', '_evaluation_master': '', '_is_chief': True, '_num_ps_replicas': 0, '_num_worker_replicas': 1}
+INFO:tensorflow:Calling model_fn.
+INFO:tensorflow:Done calling model_fn.
+INFO:tensorflow:Create CheckpointSaverHook.
+INFO:tensorflow:Graph was finalized.
+INFO:tensorflow:Restoring parameters from /tmp/pets_convnet_model\model.ckpt-17000
+INFO:tensorflow:Running local_init_op.
+INFO:tensorflow:Done running local_init_op.
+INFO:tensorflow:Saving checkpoints for 17001 into /tmp/pets_convnet_model\model.ckpt.
+INFO:tensorflow:probabilities = [[1. 0.]
+ [1. 0.]
+ [0. 1.]
+ [1. 0.]
+ [1. 0.]
+ [1. 0.]
+ [0. 1.]
+ [0. 1.]
+ [1. 0.]
+ [1. 0.]]
+INFO:tensorflow:loss = 0.0, step = 17001
+INFO:tensorflow:probabilities = [[0.12728187 0.8727181 ]
+ [0.8369002  0.16309983]
+ [0.47608933 0.52391064]
+ [0.07069858 0.92930144]
+ [0.79658324 0.20341678]
+ [0.590887   0.40911305]
+ [0.71312946 0.28687057]
+ [0.006155   0.993845  ]
+ [0.01078534 0.9892147 ]
+ [0.15916571 0.8408343 ]] (1.489 sec)
+INFO:tensorflow:global_step/sec: 35.3564
+INFO:tensorflow:probabilities = [[0.88681394 0.11318607]
+ [0.9664665  0.0335336 ]
+ [0.99083406 0.00916592]
+ [0.9104197  0.08958031]
+ [0.00006227 0.9999378 ]
+ [0.95721036 0.0427896 ]
+ [0.9026471  0.09735289]
+ [0.03340584 0.9665942 ]
+ [0.00505748 0.9949425 ]
+ [0.0075305  0.9924695 ]] (1.341 sec)
+INFO:tensorflow:loss = 0.04501104, step = 17101 (2.830 sec)
+INFO:tensorflow:probabilities = [[0.95957726 0.04042272]
+ [0.01970658 0.9802934 ]
+ [0.01419817 0.9858019 ]
+ [0.0055711  0.9944289 ]
+ [0.8956005  0.10439955]
+ [0.00956727 0.99043274]
+ [0.9300114  0.06998862]
+ [0.98184973 0.0181503 ]
+ [0.02862833 0.97137165]
+ [0.9422406  0.0577594 ]] (1.321 sec)
